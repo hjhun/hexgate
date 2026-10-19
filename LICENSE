@@ -1,0 +1,12 @@
+Hexgate first-party source licensing
+
+Copyright (c) 2026 Hexgate contributors. All rights reserved.
+
+No open-source license has been granted for original Hexgate code or original
+project assets. Access to this private repository does not by itself grant
+permission to redistribute or sublicense that material.
+
+Third-party components retain their original licenses and notices. Nothing in
+this file limits the permissions granted by those upstream licenses. See
+THIRD_PARTY_NOTICES.md, vendor/UPSTREAM-LICENSE.md, vendor/LICENSE-APACHE-2.0,
+renderers/DRAWIO-LICENSE, and app/src/main/assets/licenses/ for details.

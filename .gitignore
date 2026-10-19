@@ -1,0 +1,40 @@
+# Local tools, caches, and IDE state
+/.gradle/
+/.kotlin/
+/.tools/
+/.idea/
+*.iml
+/local.properties
+**/build/
+**/__pycache__/
+*.py[cod]
+/renderers/node_modules/
+/graphify-out/
+
+# Generated builds and private evidence
+/artifacts/
+/dist/
+*.apk
+*.aab
+*.apks
+*.hprof
+*.log
+/docs/fixtures/outside.png
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+.git-credentials
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# OS files
+.DS_Store
+Thumbs.db

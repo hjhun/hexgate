@@ -1,0 +1,10 @@
+window.PROXY_URL='/blocked';
+window.STYLE_PATH='/assets/styles';
+window.SHAPES_PATH='/assets/shapes';
+window.STENCIL_PATH='/assets/stencils';
+window.DRAW_MATH_URL='/assets/math';
+window.GRAPH_IMAGE_PATH='/assets/img';
+window.mxImageBasePath='/assets/img';
+window.mxBasePath='/assets/mxgraph';
+window.mxLoadResources=false;
+window.mxLoadStylesheets=false;

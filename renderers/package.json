@@ -1,0 +1,1 @@
+{"private":true,"scripts":{"build":"esbuild preview.js --bundle --minify --format=iife --outfile=../app/src/main/assets/preview.js --loader:.woff2=dataurl --loader:.ttf=dataurl"},"dependencies":{"dompurify":"3.4.17","marked":"18.1.1","mermaid":"12.2.0"},"devDependencies":{"esbuild":"0.25.5"}}

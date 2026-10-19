@@ -1,0 +1,4 @@
+app/src/main/assets/preview.js
+app/src/main/assets/drawio-viewer.js
+renderers/node_modules/
+.tools/

@@ -40,6 +40,9 @@ public interface TerminalViewClient {
 
     void copyModeChanged(boolean copyMode);
 
+    /** Explicit Shift-drag authorizes one remote selection clipboard response. */
+    default void onRemoteSelectionCopy(boolean enabled) {}
+
 
 
     boolean onKeyDown(int keyCode, KeyEvent e, TerminalSession session);

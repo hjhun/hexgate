@@ -2,6 +2,19 @@
 
 All versions below are development builds. Dates use the development record's local date.
 
+## 0.1.13
+
+- Add explicit SSH password authentication with a masked password field in connection settings.
+- Store passwords in the Android Keystore-backed AES-GCM vault for initial login and reconnect.
+- Preserve existing key profiles and passphrase prompts; remove stored passwords on switching to key authentication or deleting a profile.
+- Add isolated password SSH, credential storage, migration, reconnect, host rejection and editor tests.
+
+## 0.1.12
+
+- Forward tracked mouse drags directly to Herdr so its own pane boundaries and scrollback govern selection.
+- Allow Shift+drag to copy one bounded, session-scoped OSC52 selection response; retain local Ctrl+Shift box selection.
+- Keep unsolicited remote clipboard writes blocked and cancel clipboard grants on disconnect/view retirement.
+
 ## 0.1.11 — 2026-10-19
 
 - Add Ctrl+Shift+drag rectangular selection with matching highlighting and clipboard extraction.

@@ -26,7 +26,7 @@ class SshConnection {
     val columns: Int get() = terminalSize.first
     val rows: Int get() = terminalSize.second
 
-    fun connect(profile: Profile, privateKey: String, passphrase: String, verify: (String) -> Boolean) {
+    fun connect(profile: Profile, privateKey: String, passphrase: String, accountPassword: String? = null, verify: (String) -> Boolean) {
         initializeCrypto()
         val c = SSHClient()
         synchronized(this) { check(!closed) { "Connection cancelled" }; client = c }
@@ -43,12 +43,17 @@ class SshConnection {
             c.connect(profile.host, profile.port)
             check(!closed)
             c.timeout = 20000
-            val password = object : PasswordFinder {
-                override fun reqPassword(resource: Resource<*>?): CharArray = passphrase.toCharArray()
-                override fun shouldRetry(resource: Resource<*>?) = false
+            if (profile.authMethod == AuthMethod.PASSWORD) {
+                require(!accountPassword.isNullOrEmpty()) { "SSH password required" }
+                c.authPassword(profile.user, accountPassword)
+            } else {
+                val password = object : PasswordFinder {
+                    override fun reqPassword(resource: Resource<*>?): CharArray = passphrase.toCharArray()
+                    override fun shouldRetry(resource: Resource<*>?) = false
+                }
+                val key = c.loadKeys(privateKey, null, password)
+                c.authPublickey(profile.user, key)
             }
-            val key = c.loadKeys(privateKey, null, password)
-            c.authPublickey(profile.user, key)
             c.connection.keepAlive.keepAliveInterval = 15
             val s = c.startSession()
             session = s

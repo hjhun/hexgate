@@ -13,6 +13,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import java.util.UUID
 
+enum class AuthMethod { PRIVATE_KEY, PASSWORD }
+
 data class Profile(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "Development PC",
@@ -21,6 +23,7 @@ data class Profile(
     val user: String = "",
     val command: String = "",
     val herdrSession: String = "",
+    val authMethod: AuthMethod = AuthMethod.PRIVATE_KEY,
 )
 
 class ProfileStore(context: Context) {
@@ -37,30 +40,57 @@ class ProfileStore(context: Context) {
     fun profiles(): List<Profile> {
         val a = JSONArray(prefs.getString("list", "[]"))
         return (0 until a.length()).map { i -> a.getJSONObject(i).let {
-            Profile(it.getString("id"), it.getString("name"), it.getString("host"), it.getInt("port"), it.getString("user"), it.optString("command"), it.optString("herdrSession"))
+            Profile(it.getString("id"), it.getString("name"), it.getString("host"), it.getInt("port"), it.getString("user"), it.optString("command"), it.optString("herdrSession"),
+                AuthMethod.valueOf(it.optString("authMethod", AuthMethod.PRIVATE_KEY.name)))
         } }
     }
-    fun save(profile: Profile, privateKey: String?) {
+    fun save(profile: Profile, privateKey: String?, password: String? = null) {
+        val passwordId = "password:${profile.id}"
+        val encryptedPassword = if (profile.authMethod == AuthMethod.PASSWORD) {
+            if (password != null) {
+                require(password.isNotEmpty()) { "Enter an SSH password" }
+                encrypt(password, passwordId)
+            } else {
+                require(vault.contains(passwordId)) { "Enter an SSH password" }
+                null
+            }
+        } else null
+        // Encrypt before publishing profile changes, so failure cannot save a partial profile.
+        val encryptedKey = privateKey?.takeIf { it.isNotBlank() }?.let { encrypt(it) }
+        val edit = vault.edit()
+        if (encryptedKey != null) edit.putString(profile.id, encryptedKey)
+        if (profile.authMethod == AuthMethod.PRIVATE_KEY) edit.remove(passwordId)
+        else if (encryptedPassword != null) edit.putString(passwordId, encryptedPassword)
+        check(edit.commit()) { "Cannot store encrypted credentials" }
         val all = profiles().filterNot { it.id == profile.id } + profile
         val a = JSONArray()
-        all.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("host", it.host).put("port", it.port).put("user", it.user).put("command", it.command).put("herdrSession", it.herdrSession)) }
+        all.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("host", it.host).put("port", it.port).put("user", it.user).put("command", it.command).put("herdrSession", it.herdrSession).put("authMethod", it.authMethod.name)) }
         prefs.edit().putString("list", a.toString()).apply()
-        if (!privateKey.isNullOrBlank()) {
-            val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-            val encrypted = c.doFinal(privateKey.toByteArray(Charsets.UTF_8))
-            vault.edit().putString(profile.id, Base64.encodeToString(c.iv + encrypted, Base64.NO_WRAP)).apply()
+    }
+    private fun encrypt(secret: String, associatedData: String? = null): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
+        associatedData?.let { cipher.updateAAD(it.toByteArray(Charsets.UTF_8)) }
+        val encrypted = cipher.doFinal(secret.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
+    }
+    private fun decrypt(id: String, associatedData: String? = null): String {
+        val encoded = requireNotNull(vault.getString(id, null)) { "Credential not saved" }
+        val data = Base64.decode(encoded, Base64.NO_WRAP)
+        require(data.size >= 28) { "Invalid encrypted credential" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(0, 12)))
         }
+        associatedData?.let { cipher.updateAAD(it.toByteArray(Charsets.UTF_8)) }
+        return String(cipher.doFinal(data.copyOfRange(12, data.size)), Charsets.UTF_8)
     }
-    fun privateKey(profile: Profile): String {
-        val data = Base64.decode(requireNotNull(vault.getString(profile.id, null)) { "Import an SSH private key first" }, Base64.NO_WRAP)
-        val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, data.copyOfRange(0, 12))) }
-        return String(c.doFinal(data.copyOfRange(12, data.size)), Charsets.UTF_8)
-    }
+    fun privateKey(profile: Profile): String = decrypt(profile.id)
+    fun hasPassword(profile: Profile): Boolean = vault.contains("password:${profile.id}")
+    fun password(profile: Profile): String = decrypt("password:${profile.id}", "password:${profile.id}")
     fun delete(profile: Profile) {
         val kept = profiles().filterNot { it.id == profile.id }
         prefs.edit().remove("list").apply()
         kept.forEach { save(it, null) }
-        vault.edit().remove(profile.id).apply()
+        vault.edit().remove(profile.id).remove("password:${profile.id}").apply()
         prefs.edit().remove("recent:${profile.id}").apply()
     }
     fun recentFiles(profileId: String): List<String> {

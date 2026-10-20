@@ -131,7 +131,6 @@ class MainActivity : ComponentActivity() {
     },confirmButton={ TextButton(onClick={ vm.answerKeyPassphrase(passphrase);passphrase="" }) { Text("Connect") } },dismissButton={ TextButton(onClick={ passphrase="";vm.answerKeyPassphrase(null) }) { Text("Cancel") } }) }
     if (profilesOpen) AlertDialog(onDismissRequest = { profilesOpen = false }, title = { Text("SSH connections") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            OutlinedTextField(passphrase, { passphrase = it }, label = { Text("Key passphrase (memory only)") }, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
             vm.profiles.forEach { p ->
                 Surface(Modifier.fillMaxWidth().padding(top = 12.dp), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.padding(14.dp)) {
@@ -140,7 +139,7 @@ class MainActivity : ComponentActivity() {
                         if (p.herdrSession.isNotBlank()) Text("Herdr · " + p.herdrSession, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                         Spacer(Modifier.height(10.dp))
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Button(enabled = !vm.connecting, onClick = { vm.connectSaved(p, passphrase); passphrase = ""; profilesOpen = false }) { Text("Connect") }
+                            Button(enabled = !vm.connecting, onClick = { vm.connectSaved(p); passphrase = ""; profilesOpen = false }) { Text("Connect") }
                             TextButton(onClick = { editing = p; profilesOpen = false }) { Text("Edit") }
                             TextButton(onClick = { vm.delete(p) }) { Text("Delete") }
                         }
@@ -149,7 +148,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }, confirmButton = { TextButton(onClick = { editing = Profile(); profilesOpen = false }) { Text("Add connection") } }, dismissButton = { TextButton(onClick = { profilesOpen = false }) { Text("Close") } })
-    editing?.let { p -> ProfileEditor(p, { editing = null }) { saved, key -> vm.save(saved, key); editing = null; drawerScope.launch { drawerState.open() } } }
+    editing?.let { p -> ProfileEditor(p, { editing = null }) { saved, key, password -> vm.save(saved, key, password); editing = null; drawerScope.launch { drawerState.open() } } }
     vm.challenge?.let { c -> AlertDialog(onDismissRequest = { vm.answerHost(false) }, title = { Text(if (c.previous == null) "Verify server identity" else "Server identity CHANGED") }, text = {
         Column { Text(c.profile.host + ":" + c.profile.port); c.previous?.let { Text("Previously trusted: $it") }; Text("New fingerprint: " + c.fingerprint); Text("Compare with the fingerprint on your PC before trusting.") }
     }, confirmButton = { TextButton(onClick = { vm.answerHost(true) }) { Text(if (c.previous == null) "Trust" else "Replace trusted key") } }, dismissButton = { TextButton(onClick = { vm.answerHost(false) }) { Text("Reject") } }) }
@@ -196,7 +195,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun ProfileEditor(original: Profile, dismiss: () -> Unit, save: (Profile, String) -> Unit) {
+@Composable private fun ProfileEditor(original: Profile, dismiss: () -> Unit, save: (Profile, String, String?) -> Unit) {
     var name by remember { mutableStateOf(original.name) }
     var host by remember { mutableStateOf(original.host) }
     var port by remember { mutableStateOf(original.port.toString()) }
@@ -204,6 +203,8 @@ class MainActivity : ComponentActivity() {
     var command by remember { mutableStateOf(original.command) }
     var herdrSession by remember { mutableStateOf(original.herdrSession) }
     var key by remember { mutableStateOf("") }
+    var authMethod by remember { mutableStateOf(original.authMethod) }
+    var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
@@ -226,14 +227,33 @@ class MainActivity : ComponentActivity() {
             OutlinedTextField(host, { host = it }, label = { Text("Host / DDNS") }, singleLine = true)
             OutlinedTextField(port, { port = it }, label = { Text("SSH port") }, singleLine = true)
             OutlinedTextField(user, { user = it }, label = { Text("Ubuntu user") }, singleLine = true)
+            Text("Authentication", style = MaterialTheme.typography.labelLarge)
+            Row {
+                FilterChip(selected = authMethod == AuthMethod.PRIVATE_KEY,
+                    onClick = { authMethod = AuthMethod.PRIVATE_KEY; password = "" }, label = { Text("Private key") })
+                Spacer(Modifier.width(8.dp))
+                FilterChip(selected = authMethod == AuthMethod.PASSWORD,
+                    onClick = { authMethod = AuthMethod.PASSWORD }, label = { Text("Password") })
+            }
+            if (authMethod == AuthMethod.PASSWORD) {
+                OutlinedTextField(password, { password = it }, label = { Text("SSH password") },
+                    singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password))
+                Text("Stored encrypted with Android Keystore protection. Leave empty to keep a saved password.")
+            } else {
+                TextButton(enabled = !importing, onClick = { picker.launch(arrayOf("*/*")) }) { Text(if (importing) "Importing key…" else if (key.isBlank()) "Import private key" else "Private key imported") }
+                Text("Leave key unchanged when editing. Key passphrases are requested at connection time.")
+            }
             OutlinedTextField(herdrSession, { herdrSession = it }, label = { Text("Herdr session (optional)") }, singleLine = true)
             OutlinedTextField(command, { command = it }, label = { Text("Startup command (optional)") })
-            TextButton(enabled = !importing, onClick = { picker.launch(arrayOf("*/*")) }) { Text(if (importing) "Importing key…" else if (key.isBlank()) "Import private key" else "Private key imported") }
-            Text("Leave key unchanged when editing. A Herdr session takes precedence over the startup command and reattaches on each connection.")
+            Text("A Herdr session takes precedence over the startup command and reattaches on each connection.")
             if (error.isNotBlank()) Text(error)
         }
     }, confirmButton = { TextButton(enabled = !importing, onClick = {
-        if (host.isBlank() || user.isBlank() || port.toIntOrNull() !in 1..65535 || (herdrSession.isNotBlank() && !herdrSession.matches(Regex("[A-Za-z0-9_-]{1,80}")))) error = "Enter host, user and a valid port" else try { save(original.copy(name = name, host = host.trim(), port = port.toInt(), user = user.trim(), command = command, herdrSession = herdrSession), key) } catch (_: Exception) { error = "Could not store profile/key" }
+        if (host.isBlank() || user.isBlank() || port.toIntOrNull() !in 1..65535 || (herdrSession.isNotBlank() && !herdrSession.matches(Regex("[A-Za-z0-9_-]{1,80}")))) error = "Enter host, user and a valid port" else try { save(original.copy(name = name, host = host.trim(), port = port.toInt(), user = user.trim(), command = command, herdrSession = herdrSession, authMethod = authMethod), key,
+            password.takeIf { authMethod == AuthMethod.PASSWORD && it.isNotEmpty() });password = "" } catch (_: Exception) { error = "Could not store credentials. Enter a password for password authentication." }
     }) { Text("Save") } }, dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } })
 }
 

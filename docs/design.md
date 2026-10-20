@@ -4,7 +4,7 @@ Approved direction: Kotlin native Android SSH client for foldable phones and tab
 
 ## Modules
 
-- Connection: profiles, explicit host trust, encrypted key storage, SSH PTY and SFTP. Network work stays off the main thread. Lifecycle survives Activity recreation; process death requires reconnect.
+- Connection: profiles, explicit host trust, encrypted key/password storage, SSH PTY and SFTP. Network work stays off the main thread. Lifecycle survives Activity recreation; process death requires reconnect.
 - Terminal: mature emulator handles byte streams, VT state, UTF-8, cursor, color, mouse and IME. Output bypasses Compose state. Scrollback and input queues are bounded. Resize updates remote PTY dimensions.
 - Remote workspace: identify this client's Herdr session and selected pane without assuming another client's focus. Use an explicit captured pane identifier and validated cwd. Fall back to explicit pane selection if installed Herdr cannot identify client-local focus safely.
 - Preview: bounded SFTP reads; Markdown, Mermaid, HTML and draw.io rendered locally. Untrusted HTML cannot run scripts or access native interfaces. Trusted diagram renderers are separated from document scripts. Relative resources are scoped to the selected remote document tree.
@@ -51,3 +51,13 @@ User correction: only Ctrl+Shift+C copies and Ctrl+Shift+V pastes locally. Plain
 ## Ctrl+Shift rectangular mouse selection — 2026-10-19
 
 Ctrl+Shift held at primary mouse-down selects a rectangular block instead of a linear stream. The modifier is latched for the gesture; reversed directions normalize X and Y independently. Every selected row is highlighted at the same column range and copied row-by-row, separated by newlines. Full-width characters intersecting the edges are selected/copied whole. Ordinary drag retains existing linear behavior, and Ctrl+Shift+C/V retain their clipboard actions. Manual rectangle bounds let users isolate text inside one Herdr pane without inferring untrusted/global Herdr focus or changing remote mouse state. The original renderer API remains a linear-selection overload for compatibility.
+
+## Password authentication
+
+Profiles explicitly select private-key or password authentication; missing legacy metadata
+means private key. Account passwords have separate AES-GCM vault records protected by the
+existing Android Keystore key, with profile/type-bound associated data. The connection editor
+never preloads decrypted passwords. Empty editing input retains a stored password; replacement
+input updates it. Key mode removes the stored password; profile deletion removes both kinds of
+credentials. Password profiles skip key loading and use SSHJ password authentication after
+normal host trust. Existing session/background ownership and SFTP/PTY paths are shared.

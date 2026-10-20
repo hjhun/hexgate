@@ -84,3 +84,16 @@ See [validation.md](docs/validation.md) for historical evidence and remaining ha
 
 APK files, test recordings, local credentials, signing keys, caches, and private delivery links
 must not be committed. Build release artifacts separately after choosing a signing policy.
+
+### Password authentication fixture
+
+Password tests do not need a real Linux account password. With Python Paramiko available,
+run `python3 scripts/password-ssh-fixture.py` in a separate terminal. It binds only to
+`127.0.0.1:22223`, creates a random per-run password under ignored `.tools/password-fixture/`,
+and never changes system users or sshd configuration. Keep this process running while testing.
+Then build both APKs and run `scripts/emulator-test.sh` with
+`HEXGATE_TEST_CLASS=dev.hexgate.PasswordAuthenticationTest`. The runner transfers the fixture
+credentials temporarily and removes the device copy on exit. The fixture removes its local
+credentials file when stopped normally. Its Python dependency is for local tests only; Paramiko
+is not included in the Android application. The default test host `10.0.2.2` targets the Android
+emulator's host loopback.

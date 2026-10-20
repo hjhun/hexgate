@@ -12,14 +12,14 @@ sessions. It is built with Kotlin, Jetpack Compose, SSHJ, and the Termux termina
 
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1.20-7F52FF)
-![Version](https://img.shields.io/badge/version-0.1.11-blue)
+![Version](https://img.shields.io/badge/version-0.1.13-blue)
 
 ## Features
 
 - **Native terminal:** ANSI/VT rendering, Unicode and CJK fallback, Nerd Fonts, hardware
   keyboards, Android IME input, and an accessory key bar with Enter next to Tab.
-- **SSH profiles:** imported OpenSSH private keys, memory-only passphrases, explicit SHA256
-  host-key trust, and Android Keystore encryption for stored keys.
+- **SSH profiles:** imported OpenSSH private keys or saved account passwords, memory-only key
+  passphrases, explicit SHA256 host-key trust, and Android Keystore encryption for stored credentials.
 - **Persistent workspace:** foreground connection service, optional battery optimization
   exemption, reconnect to named Herdr sessions, and terminal display refresh.
 - **Adaptive layout:** fold/cover resizing, terminal/preview split on wide windows, and an
@@ -35,7 +35,8 @@ sessions. It is built with Kotlin, Jetpack Compose, SSHJ, and the Termux termina
 1. Make an SSH server reachable from your Android device. For WSL and optional Tailscale
    access, follow the [connection guide](docs/connection-guide.md).
 2. Install a locally built APK or an APK provided by the repository owner.
-3. Open the left drawer, add a connection, and import a dedicated private key.
+3. Open the left drawer and add a connection. Choose **Private key** and import a dedicated key,
+   or choose **Password** and enter the SSH account password to store it encrypted.
 4. Compare the displayed host fingerprint with the fingerprint obtained directly on the
    server before accepting it.
 5. Optionally enter a dedicated Herdr session name to attach to a persistent remote workspace.
@@ -92,7 +93,7 @@ requires the same signing certificate; debug APKs from different machines may no
 
 ## Project status
 
-Version **0.1.11** is a development build. Generic foldable and tablet Android emulators have
+Version **0.1.13** is a development build. Generic foldable and tablet Android emulators have
 been exercised with real SSH, SFTP, and isolated Herdr sessions. They do not emulate Samsung
 firmware. Physical Samsung IME/Bluetooth input, DeX/taskbar behavior, long screen-off operation,
 and external-network reachability require device-specific validation.

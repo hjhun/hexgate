@@ -46,16 +46,26 @@ apply to the next key.
 
 | Action | Input |
 | --- | --- |
-| Linear text selection | Left mouse drag |
+| Linear text selection in a regular shell | Left mouse drag |
+| Herdr pane selection | Left mouse drag with Select mode off |
+| Copy a Herdr pane selection | Hold Shift while dragging, then release the mouse |
 | Rectangular text selection | Hold Ctrl+Shift before starting a left drag |
 | Copy selected text | Ctrl+Shift+C or context-menu Copy |
 | Paste clipboard text | Ctrl+Shift+V or context-menu Paste |
 | Terminal control input | Plain Ctrl+C / Ctrl+V |
-| Remote TUI mouse drag | Alt+drag with Select mode off |
+| Remote TUI mouse drag | Left drag with Select mode off when the TUI enables mouse tracking |
 
 Context-menu clipboard labels currently follow the app's Korean popup labels. Copy is disabled
 when no text is selected. Select mode suppresses remote mouse reports; long-press selection and
 the accessory Copy/Paste controls are also available.
+
+Herdr handles its own pane boundaries and scroll position. Plain drag selects remotely;
+Shift+drag additionally accepts one clipboard response from that same SSH session. Herdr's
+`ui.copy_on_select` must be enabled (its default). Child applications that capture mouse input
+handle their own selections; use Select mode or Ctrl+Shift box selection as a local fallback.
+The clipboard grant expires after five seconds and is cleared by cancellation, disconnect, or
+view retirement. Unsolicited remote clipboard messages remain ignored. Shift is consumed locally
+for this gesture and is not forwarded as a child-application mouse modifier.
 
 For rectangular selection, each selected row contributes only the specified column range.
 Bound the rectangle inside a Herdr pane to avoid copying adjacent panes. Reverse-direction
@@ -124,3 +134,20 @@ Generic foldable and tablet emulators have exercised real SSH/Herdr, Unicode inp
 folding, and process recovery. They are not Samsung firmware emulations. Physical Samsung IME,
 Bluetooth input, DeX/taskbar behavior, long screen-off operation, and external-network reachability
 remain device-specific validation work. See [validation.md](validation.md).
+
+## Password authentication
+
+Open the left drawer and add a connection, or edit a saved connection. Under **Authentication**,
+choose **Password** and enter the account's **SSH password**, then save. A private key is not
+required for this mode. Selecting the saved connection or reconnecting uses the encrypted saved
+password; normal host identity verification still applies.
+
+The password is protected with AES-GCM and an Android Keystore key in app-private storage.
+When editing, the masked input remains empty: leave it empty to keep the stored password, or
+enter a new password to replace it. Switching to **Private key** removes the saved password.
+Deleting a connection removes both its password and private key. Uninstalling or clearing app
+data removes local credentials. Passwords are excluded from backup and are never logged.
+
+Private-key profiles retain their existing key import and separate key-passphrase prompt.
+The server must already permit SSH password authentication; Hexgate does not change the server
+configuration. Interactive OTP/MFA prompts are not included in this version.

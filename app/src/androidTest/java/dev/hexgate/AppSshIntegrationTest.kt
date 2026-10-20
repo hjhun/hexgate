@@ -107,6 +107,47 @@ class AppSshIntegrationTest {
                 scenario.onActivity { java.io.File(context.cacheDir,"ime-buffer.txt").writeText(model.terminal.emulator.screen.transcriptText) }
                 val inputObservedMs=TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-inputStart)
                 assertTrue("IME Unicode/hardware Enter did not reach the remote Herdr pane",inputReady)
+                // Exercise Herdr's own pane extraction and OSC52 over the real SSH fixture.
+                if (!trace) {
+                    scenario.onActivity { a ->
+                        fun find(v: android.view.View): com.termux.view.TerminalView? {
+                            if (v is com.termux.view.TerminalView) return v
+                            if (v is android.view.ViewGroup) for (i in 0 until v.childCount) find(v.getChildAt(i))?.let { return it }
+                            return null
+                        }
+                        val v = requireNotNull(find(a.window.decorView))
+                        val em = model.terminal.emulator
+                        assertTrue("Herdr mouse tracking missing", em.isMouseTrackingActive)
+                        val row = (0 until em.mRows).first { r ->
+                            val line = em.screen.getSelectedText(0, r, em.mColumns-1, r)
+                            line.contains("HEXGATE_IME_") && !line.contains("printf")
+                        }
+                        val column = em.screen.getSelectedText(0, row, em.mColumns-1, row).indexOf("HEXGATE_IME_")
+                        a.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("fixture", "not copied"))
+                        val pointer = android.view.MotionEvent.PointerProperties().apply { id=0;toolType=android.view.MotionEvent.TOOL_TYPE_MOUSE }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        for (step in 0..5) {
+                            val action = when(step) { 0 -> android.view.MotionEvent.ACTION_DOWN; 5 -> android.view.MotionEvent.ACTION_UP; else -> android.view.MotionEvent.ACTION_MOVE }
+                            val coords = android.view.MotionEvent.PointerCoords().apply {
+                                x = (column + 0.2f + step * 2) * v.mRenderer.fontWidth
+                                y = (row + 0.8f) * v.mRenderer.fontLineSpacing
+                            }
+                            val event = android.view.MotionEvent.obtain(now,now+step*20,action,1,arrayOf(pointer),arrayOf(coords),android.view.KeyEvent.META_SHIFT_ON,
+                                if(step==5)0 else android.view.MotionEvent.BUTTON_PRIMARY,1f,1f,0,0,android.view.InputDevice.SOURCE_MOUSE,0)
+                            v.dispatchTouchEvent(event);event.recycle()
+                        }
+                        assertFalse("Herdr selection was intercepted locally",v.isSelectingText)
+                    }
+                    var copied = false
+                    val copyDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+                    while (!copied && System.nanoTime() < copyDeadline) {
+                        scenario.onActivity { a ->
+                            copied = a.getSystemService(android.content.ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.contains("HEXGATE") == true
+                        }
+                        Thread.sleep(50)
+                    }
+                    assertTrue("Shift pane selection did not copy Herdr OSC52 over SSH",copied)
+                }
                 Thread.sleep(500)
                 val screenshot=InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                 File(context.cacheDir,"herdr-tablet.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG,100,it) }

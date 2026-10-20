@@ -2,7 +2,7 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id(
 android {
  namespace = "dev.hexgate"
  compileSdk = 36
- defaultConfig { applicationId = "dev.hexgate"; minSdk = 26; targetSdk = 36; versionCode = 12; versionName = "0.1.11"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
+ defaultConfig { applicationId = "dev.hexgate"; minSdk = 26; targetSdk = 36; versionCode = 14; versionName = "0.1.13"; testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
  buildFeatures { compose = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = "17" }

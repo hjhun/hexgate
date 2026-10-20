@@ -28,6 +28,7 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var connectTicket = 0
     private var activeProfile: Profile? = store.lastProfile()
     private var view = WeakReference<TerminalView>(null)
+    private val selectionClipboard = SelectionClipboardGrant()
     var profiles by mutableStateOf(store.profiles()); private set
     var status by mutableStateOf("Disconnected"); private set
     var connected by mutableStateOf(false); private set
@@ -52,8 +53,8 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     fun connectSaved(profile: Profile, passphrase: String? = null) {
         if (connected && activeProfile?.id==profile.id) return
         if (connecting) disconnect()
-        if (passphrase != null) {
-            disconnect();connect(profile,passphrase);return
+        if (profile.authMethod == AuthMethod.PASSWORD || passphrase != null) {
+            disconnect();connect(profile,passphrase.orEmpty());return
         }
         val request=++profileRequestTicket
         val version=connectTicket
@@ -91,8 +92,8 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     private var remoteTty = ""
     var paneChoices by mutableStateOf<List<HerdrPane>>(emptyList()); private set
     var selectedPane by mutableStateOf<HerdrPane?>(null); private set
-    var terminal = makeTerminal(); private set
-    private fun makeTerminal(target: SshConnection = connection) = TerminalSession(object : TerminalSession.Transport {
+    var terminal: TerminalSession = makeTerminal(); private set
+    private fun makeTerminal(target: SshConnection = connection): TerminalSession = TerminalSession(object : TerminalSession.Transport {
         override fun send(data: ByteArray) { try { target.send(data) } catch (_: Exception) { status = "Input queue full; retry" } }
         override fun resize(columns: Int, rows: Int) { try { target.resize(columns, rows) } catch (_: Exception) { status = "Resize queue full" } }
     }, object : QuietSessionClient() {
@@ -105,7 +106,9 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
         }
         override fun onTextChanged(session: TerminalSession) { view.get()?.onScreenUpdated() }
         override fun onColorsChanged(session: TerminalSession) { view.get()?.invalidate() }
-        // Remote OSC clipboard messages require an explicit local copy/paste action instead.
+        override fun onCopyTextToClipboard(session: TerminalSession, text: String) {
+            if (session === terminal && selectionClipboard.consume(session, android.os.SystemClock.uptimeMillis(), text)) copy(text)
+        }
     })
     private var themedSession: TerminalSession? = null
     private var terminalThemeId = ""
@@ -144,14 +147,16 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
         v.attachSession(terminal)
     }
     fun detach(v: TerminalView) {
+        selectionClipboard.clear()
         if (view.get() === v) view.clear()
         v.detachSession()
     }
-    fun save(profile: Profile, key: String) {
-        store.save(profile, key.ifBlank { null }); profiles = store.profiles()
+    fun save(profile: Profile, key: String, password: String? = null) {
+        store.save(profile, key.ifBlank { null }, password); profiles = store.profiles()
     }
     fun delete(profile: Profile) { store.delete(profile); profiles = store.profiles() }
     fun connect(profile: Profile, passphrase: String = "") {
+        selectionClipboard.clear()
         if (connecting || connected) return
         require(profile.host.isNotBlank() && profile.user.isNotBlank() && profile.port in 1..65535)
         val attempt = ++connectTicket
@@ -173,7 +178,9 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
         val target = connection
         worker.execute {
             try {
-                target.connect(profile, store.privateKey(profile), passphrase) { fingerprint ->
+                val privateKey = if (profile.authMethod == AuthMethod.PRIVATE_KEY) store.privateKey(profile) else ""
+                val password = if (profile.authMethod == AuthMethod.PASSWORD) store.password(profile) else null
+                target.connect(profile, privateKey, passphrase, password) { fingerprint ->
                     val old = store.trusted(profile.host, profile.port)
                     if (old == fingerprint) true else {
                         val answer = CompletableFuture<Boolean>()
@@ -192,7 +199,7 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
                 }
                 main.post { if (connection === target && attempt == connectTicket) status = "Connection closed; reconnect to resume" }
             } catch (_: Exception) {
-                main.post { if (connection === target && attempt == connectTicket) status = "Connection failed. Check address, SSH key, passphrase and host trust." }
+                main.post { if (connection === target && attempt == connectTicket) status = "Connection failed. Check address, authentication settings and host trust." }
             } finally {
                 target.shutdown()
                 main.post { if (connection === target && attempt == connectTicket) { connected = false; connecting = false; stopConnectionService() } }
@@ -258,6 +265,7 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
         if (connected) connection.refreshDisplay()
     }
     fun disconnect() {
+        selectionClipboard.clear()
         ++profileRequestTicket;keyPromptProfile=null
         ++connectTicket
         answerHost(false)
@@ -285,6 +293,11 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     }
     fun viewClient(v: TerminalView) = object : QuietViewClient() {
         override fun shouldEnforceCharBasedInput() = true
+        override fun onRemoteSelectionCopy(enabled: Boolean) {
+            if (view.get() !== v) return
+            if (enabled) selectionClipboard.arm(terminal, android.os.SystemClock.uptimeMillis())
+            else selectionClipboard.clear()
+        }
         override fun onKeyDown(keyCode: Int, e: android.view.KeyEvent?, session: TerminalSession?): Boolean {
             if ((e?.isCtrlPressed == true || ctrl) && e?.isShiftPressed == true && !e.isAltPressed) {
                 val selected = v.selectedText?.takeIf { it.isNotEmpty() }

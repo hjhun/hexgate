@@ -293,6 +293,9 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session == mTermSession) return false;
 
+        mRemoteMouseDrag = false;
+        mRemoteCopyArmed = false;
+        mClient.onRemoteSelectionCopy(false);
         mTermSession = session;
         mEmulator = null;
         mCombiningAccent = 0;
@@ -310,6 +313,9 @@ public final class TerminalView extends View {
 
     /** Retire only this window's renderer; the remote session keeps running. */
     public void detachSession() {
+        mRemoteMouseDrag = false;
+        mRemoteCopyArmed = false;
+        mClient.onRemoteSelectionCopy(false);
         stopTextSelectionMode();
         setTerminalCursorBlinkerState(false, false);
         mTermSession = null;
@@ -628,6 +634,52 @@ public final class TerminalView extends View {
     private boolean mMouseDraggingSelection;
     private boolean mReplayingMouseClick;
 
+    private boolean mRemoteMouseDrag;
+    private float mRemoteDownX, mRemoteDownY;
+    private boolean mRemoteCopyArmed;
+
+    /** Let the multiplexer select inside its own pane, including scrolled rows. */
+    private boolean handleRemoteMouseDrag(MotionEvent event) {
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false;
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            // Preserve explicit local box selection and the Select toolbar mode.
+            if (!event.isButtonPressed(MotionEvent.BUTTON_PRIMARY)
+                || !mMouseReportingEnabled || !mEmulator.isMouseTrackingActive()
+                || ((event.getMetaState() & KeyEvent.META_CTRL_ON) != 0 && (event.getMetaState() & KeyEvent.META_SHIFT_ON) != 0)) return false;
+            stopTextSelectionMode();
+            requestFocus();
+            mRemoteMouseDrag = true;
+            mRemoteCopyArmed = false;
+            mRemoteDownX = event.getX(); mRemoteDownY = event.getY();
+            mClient.onRemoteSelectionCopy(false);
+            // Shift is a local clipboard gesture; Herdr receives ordinary pane selection.
+            sendMouseEventCode(event, TerminalEmulator.MOUSE_LEFT_BUTTON, true);
+            return true;
+        }
+        if (!mRemoteMouseDrag) return false;
+        if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+            float dx = event.getX() - mRemoteDownX, dy = event.getY() - mRemoteDownY;
+            int slop = android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop();
+            if ((event.getMetaState() & KeyEvent.META_SHIFT_ON) != 0 && dx * dx + dy * dy > slop * slop) {
+                mRemoteCopyArmed = true;
+                mClient.onRemoteSelectionCopy(true);
+            }
+            if (action == MotionEvent.ACTION_UP && mRemoteCopyArmed) mClient.onRemoteSelectionCopy(true);
+            sendMouseEventCode(event, action == MotionEvent.ACTION_UP
+                ? TerminalEmulator.MOUSE_LEFT_BUTTON : TerminalEmulator.MOUSE_LEFT_BUTTON_MOVED,
+                action != MotionEvent.ACTION_UP);
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (action == MotionEvent.ACTION_CANCEL) {
+                sendMouseEventCode(event, TerminalEmulator.MOUSE_LEFT_BUTTON, false);
+                mClient.onRemoteSelectionCopy(false);
+            }
+            mRemoteMouseDrag = false;
+        }
+        return true;
+    }
+
     private boolean handleMouseSelection(MotionEvent event) {
         if (mReplayingMouseClick || !event.isFromSource(InputDevice.SOURCE_MOUSE)) return false;
         final int action = event.getActionMasked();
@@ -700,6 +752,7 @@ public final class TerminalView extends View {
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
         if (handleSecondaryMouseButton(event)) return true;
+        if (handleRemoteMouseDrag(event)) return true;
         if (handleMouseSelection(event)) return true;
         final int action = event.getAction();
 
@@ -1557,6 +1610,9 @@ public final class TerminalView extends View {
         super.onDetachedFromWindow();
         if (mMouseSelectionDown != null) { mMouseSelectionDown.recycle(); mMouseSelectionDown = null; }
         mMouseDraggingSelection = false;
+        mRemoteMouseDrag = false;
+        mRemoteCopyArmed = false;
+        mClient.onRemoteSelectionCopy(false);
 
         if (mTextSelectionCursorController != null) {
             // Might solve the following exception

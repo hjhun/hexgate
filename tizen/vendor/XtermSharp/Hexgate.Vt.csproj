@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework><AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>disable</Nullable><NoWarn>$(NoWarn);CS0618</NoWarn></PropertyGroup><ItemGroup><PackageReference Include="NStack.Core" Version="0.12.0" /><Compile Remove="Pty.cs;Renderer.cs" /></ItemGroup></Project>

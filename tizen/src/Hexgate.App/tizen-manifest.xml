@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns="http://tizen.org/ns/packages" api-version="10.0" package="org.tizen.hexgate" version="0.1.0">
+ <profile name="common" />
+ <privileges><privilege>http://tizen.org/privilege/internet</privilege></privileges>
+ <ui-application appid="org.tizen.hexgate" exec="Hexgate.App.dll" type="dotnet" multiple="false" taskmanage="true" nodisplay="false" launch_mode="single" api-version="14">
+  <label>Hexgate</label>
+  <icon>icons/hexgate_portal.png</icon>
+ </ui-application>
+</manifest>

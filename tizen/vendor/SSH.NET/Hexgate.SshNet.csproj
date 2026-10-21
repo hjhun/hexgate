@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Renci.SshNet</AssemblyName>
+    <Version>2026.0.0</Version>
+    <AssemblyVersion>2026.0.0.2</AssemblyVersion>
+    <InformationalVersion>2026.0.0+hexgate.receive-window.2</InformationalVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- C#14 extension blocks contain only non-NET compatibility members.
+         Exclude these empty net8 shims so the existing .NET8 SDK can compile. -->
+    <Compile Remove="src/Abstractions/StringExtensions.cs;src/Abstractions/ConvertExtensions.cs;src/Abstractions/DateTimeExtensions.cs;src/Abstractions/MD5Extensions.cs;src/Abstractions/RandomNumberGeneratorExtensions.cs;src/Abstractions/SHA1Extensions.cs;src/Abstractions/SHA256Extensions.cs;src/Abstractions/SHA384Extensions.cs;src/Abstractions/SHA512Extensions.cs" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+    <PackageReference Include="PolySharp" Version="1.16.0" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

@@ -38,3 +38,11 @@ id_ed25519*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Tizen managed build and emulator packages
+/tizen/**/bin/
+/tizen/**/obj/
+/tizen/dist/
+/tizen/artifacts/
+*.tpk
+/tizen/**/core

@@ -1,0 +1,9 @@
+SSH.NET 2026.0.0 - Hexgate receive-window adaptation 2
+Upstream MIT license: SSH.NET-LICENSE
+Upstream commit: 7b2fd3dbf2c86a80a7b06cea020aa5f821c9902e
+Source: https://github.com/sshnet/SSH.NET
+
+Modified for bounded ShellStream receive windows, consumer-controlled receive credit,
+extended output accounting, bounded SFTP frame admission/reassembly and .NET8 build compatibility. Hexgate's source distribution
+contains vendor/SSH.NET/README.md, receive-window.patch and source checksums. This assembly
+is a locally modified build, not the unmodified official NuGet binary.

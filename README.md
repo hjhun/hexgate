@@ -107,3 +107,11 @@ No arbitrary document JavaScript, public preview server, or automatic router con
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for upstream code, renderer, font, and
 palette licenses. Third-party notices are also packaged in the app. The repository is private;
 its first-party licensing policy is recorded in [LICENSE](LICENSE).
+
+## Tizen NUI development port
+
+The `tizen` branch includes a native C#/.NET8 NUI port under `tizen/`. See
+[its README](tizen/README.md) and [current acceptance audit](tizen/docs/acceptance.md)
+for the signed emulator artifact, verification and physical-device boundaries.
+Remaining-goal emulator regression passed; physical-device verification is a separate
+follow-up. Android remains the behavior reference.

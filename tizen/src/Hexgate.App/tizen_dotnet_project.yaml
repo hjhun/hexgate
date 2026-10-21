@@ -1,0 +1,9 @@
+csproj_file: Hexgate.App.csproj
+profile: common
+api_version: "10.0"
+build_type: Debug
+signing_profile: ""
+files:
+  - Hexgate.App.csproj
+  - tizen-manifest.xml
+deps: []

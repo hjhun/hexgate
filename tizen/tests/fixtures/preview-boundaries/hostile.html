@@ -1,0 +1,13 @@
+<meta http-equiv="refresh" content="1; url=http://10.0.2.2:22224/unexpected-meta">
+<link rel="stylesheet" href="styles/allowed.css">
+<style>@import url('http://10.0.2.2:22224/unexpected-css');</style>
+<h1 id="marker">STATIC_BOUNDARY_OK</h1>
+<p>Only the green image and green heading should be visible.</p>
+<img src="allowed.svg" width="180" height="60" alt="Allowed relative SVG">
+<img src="escape.svg" width="180" height="60" alt="Blocked symlink resource">
+<img src="../private/protected.svg" width="180" height="60" alt="Blocked parent resource">
+<img src="file:///opt/usr/home/owner/apps_rw/org.tizen.hexgate/data/protected-fixture.svg" width="180" height="60" alt="Blocked local file">
+<img src="http://10.0.2.2:22224/unexpected-image" width="30" height="30" onerror="document.getElementById('marker').textContent='SCRIPT_EXECUTED'">
+<iframe src="http://10.0.2.2:22224/unexpected-frame"></iframe>
+<object data="http://10.0.2.2:22224/unexpected-object"></object>
+<script>document.getElementById('marker').textContent='SCRIPT_EXECUTED';fetch('http://10.0.2.2:22224/unexpected-fetch');window.open('http://10.0.2.2:22224/unexpected-window');</script>

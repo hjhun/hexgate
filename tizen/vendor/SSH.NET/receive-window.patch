@@ -1,0 +1,412 @@
+--- a/Channels/Channel.cs
++++ b/Channels/Channel.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Net.Sockets;
+ using System.Threading;
+ 
+@@ -19,6 +19,9 @@
+         private readonly Lock _messagingLock = new Lock();
+         private readonly Lock _sendDataLock = new Lock();
+         private readonly uint _initialWindowSize;
++        private readonly object _receiveWindowLock = new object();
++        private uint _pendingReceiveCredit;
++        internal bool ConsumerControlledWindow { get; set; }
+         private readonly ISession _session;
+         private readonly ILogger _logger;
+         private EventWaitHandle _channelClosedWaitHandle = new ManualResetEvent(initialState: false);
+@@ -769,13 +772,37 @@
+ 
+         private void AdjustDataWindow(int count)
+         {
+-            LocalWindowSize -= (uint)count;
+-
+-            // Adjust window if window size is too low
+-            if (LocalWindowSize < LocalPacketSize)
+-            {
+-                SendMessage(new ChannelWindowAdjustMessage(RemoteChannelNumber, _initialWindowSize - LocalWindowSize));
+-                LocalWindowSize = _initialWindowSize;
++            lock (_receiveWindowLock)
++            {
++                if (count < 0 || (uint)count > LocalWindowSize || (uint)count > LocalPacketSize)
++                {
++                    throw new SshException("Channel data exceeds the advertised receive window or packet size.");
++                }
++                LocalWindowSize -= (uint)count;
++                if (!ConsumerControlledWindow && LocalWindowSize < LocalPacketSize)
++                {
++                    SendMessage(new ChannelWindowAdjustMessage(RemoteChannelNumber, _initialWindowSize - LocalWindowSize));
++                    LocalWindowSize = _initialWindowSize;
++                }
++            }
++        }
++
++        public void AcknowledgeReceivedBytes(int count)
++        {
++            lock (_receiveWindowLock)
++            {
++                if (!ConsumerControlledWindow || !IsOpen || count == 0) return;
++                if (count < 0 || (uint)count > _initialWindowSize - LocalWindowSize - _pendingReceiveCredit)
++                {
++                    throw new SshException("Invalid consumed receive credit.");
++                }
++                _pendingReceiveCredit += (uint)count;
++                if (_pendingReceiveCredit >= LocalPacketSize || LocalWindowSize == 0)
++                {
++                    SendMessage(new ChannelWindowAdjustMessage(RemoteChannelNumber, _pendingReceiveCredit));
++                    LocalWindowSize += _pendingReceiveCredit;
++                    _pendingReceiveCredit = 0;
++                }
+             }
+         }
+ 
+--- a/Channels/IChannel.cs
++++ b/Channels/IChannel.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ 
+ using Renci.SshNet.Common;
+ using Renci.SshNet.Messages.Connection;
+@@ -10,6 +10,11 @@
+     /// </summary>
+     internal interface IChannel : IDisposable
+     {
++        /// <summary>
++        /// Hexgate: return receive credit only after the consumer discards data.
++        /// </summary>
++        void AcknowledgeReceivedBytes(int count);
++
+         /// <summary>
+         /// Occurs when <see cref="ChannelDataMessage"/> is received.
+         /// </summary>
+--- a/ForwardedPort.cs
++++ b/ForwardedPort.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ 
+ using Renci.SshNet.Common;
+ 
+@@ -105,7 +105,7 @@
+             RaiseClosing();
+ 
+             var session = Session;
+-            session?.ErrorOccured -= Session_ErrorOccurred;
++            if (session is not null) session.ErrorOccured -= Session_ErrorOccurred;
+         }
+ 
+         /// <summary>
+--- a/ISession.cs
++++ b/ISession.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Net.Sockets;
+ using System.Threading;
+ using System.Threading.Tasks;
+@@ -84,6 +84,9 @@
+         /// A new SSH session channel.
+         /// </returns>
+         IChannelSession CreateChannelSession();
++
++        // Hexgate: a consumer-controlled bounded shell channel.
++        IChannelSession CreateBoundedShellChannel(uint receiveWindow);
+ 
+         /// <summary>
+         /// Create a new channel for a locally forwarded TCP/IP port.
+--- a/Session.cs
++++ b/Session.cs
+@@ -1,4 +1,4 @@
+-﻿using System;
++using System;
+ using System.Buffers.Binary;
+ using System.Diagnostics;
+ using System.Globalization;
+@@ -2238,6 +2238,13 @@
+             return new ChannelSession(this, NextChannelNumber, InitialLocalWindowSize, LocalChannelDataPacketSize);
+         }
+ 
++        IChannelSession ISession.CreateBoundedShellChannel(uint receiveWindow)
++        {
++            var channel = new ChannelSession(this, NextChannelNumber, receiveWindow, LocalChannelDataPacketSize);
++            channel.ConsumerControlledWindow = true;
++            return channel;
++        }
++
+         /// <summary>
+         /// Create a new channel for a locally forwarded TCP/IP port.
+         /// </summary>
+--- a/Sftp/SftpSession.cs
++++ b/Sftp/SftpSession.cs
+@@ -255,67 +255,70 @@
+             WorkingDirectory = RequestRealPath(".")[0].Key;
+         }
+ 
++        // Includes the four-byte length header. ArrayBuffer grows in powers of
++        // two from 32 KiB, so its backing allocation cannot exceed this bound.
++        private const int MaximumFrameSize = 1024 * 1024;
++
++        private static int ReadPacketLength(ArraySegment<byte> data)
++        {
++            var length = BinaryPrimitives.ReadInt32BigEndian(data);
++            if (length < 1 || length > MaximumFrameSize - 4)
++            {
++                throw new SshException("SFTP response frame exceeds the supported size or has an invalid length.");
++            }
++
++            return length;
++        }
++
+         protected override void OnDataReceived(ArraySegment<byte> data)
+         {
+-            // If the buffer is empty then skip a copy and read packets
+-            // directly out of the given data.
+-            if (_buffer.ActiveLength == 0)
+-            {
+-                while (data.Count >= 4)
++            while (data.Count > 0)
++            {
++                // Complete frames can be decoded without copying. Validate the
++                // length before either decoding or admitting any body bytes.
++                if (_buffer.ActiveLength == 0 && data.Count >= 4)
+                 {
+-                    var packetLength = BinaryPrimitives.ReadInt32BigEndian(data);
+-
+-                    if (data.Count - 4 < packetLength)
++                    var length = ReadPacketLength(data);
++                    if (data.Count - 4 >= length)
+                     {
+-                        break;
++                        if (!TryLoadSftpMessage(data.Slice(4, length)))
++                        {
++                            return;
++                        }
++
++                        data = data.Slice(4 + length);
++                        continue;
+                     }
+-
+-                    if (!TryLoadSftpMessage(data.Slice(4, packetLength)))
++                }
++
++                var buffered = new ArraySegment<byte>(
++                    _buffer.DangerousGetUnderlyingBuffer(),
++                    _buffer.ActiveStartOffset, _buffer.ActiveLength);
++                var target = buffered.Count < 4 ? 4 : 4 + ReadPacketLength(buffered);
++                var count = Math.Min(target - buffered.Count, data.Count);
++                _buffer.EnsureAvailableSpace(count);
++                data.AsSpan().Slice(0, count).CopyTo(_buffer.AvailableSpan);
++                _buffer.Commit(count);
++                data = data.Slice(count);
++
++                if (_buffer.ActiveLength < 4)
++                {
++                    continue;
++                }
++
++                buffered = new ArraySegment<byte>(
++                    _buffer.DangerousGetUnderlyingBuffer(),
++                    _buffer.ActiveStartOffset, _buffer.ActiveLength);
++                var packetLength = ReadPacketLength(buffered);
++                if (buffered.Count == 4 + packetLength)
++                {
++                    if (!TryLoadSftpMessage(buffered.Slice(4, packetLength)))
+                     {
+-                        // An error occurred.
+                         return;
+                     }
+ 
+-                    data = data.Slice(4 + packetLength);
++                    _buffer.Discard(buffered.Count);
+                 }
+-
+-                if (data.Count > 0)
+-                {
+-                    // Now buffer the remainder.
+-                    _buffer.EnsureAvailableSpace(data.Count);
+-                    data.AsSpan().CopyTo(_buffer.AvailableSpan);
+-                    _buffer.Commit(data.Count);
+-                }
+-
+-                return;
+-            }
+-
+-            // The buffer already had some data. Append the new data and
+-            // proceed with reading out packets.
+-            _buffer.EnsureAvailableSpace(data.Count);
+-            data.AsSpan().CopyTo(_buffer.AvailableSpan);
+-            _buffer.Commit(data.Count);
+-
+-            while (_buffer.ActiveLength >= 4)
+-            {
+-                data = new ArraySegment<byte>(
+-                    _buffer.DangerousGetUnderlyingBuffer(),
+-                    _buffer.ActiveStartOffset,
+-                    _buffer.ActiveLength);
+-
+-                var packetLength = BinaryPrimitives.ReadInt32BigEndian(data);
+-
+-                if (data.Count - 4 < packetLength)
+-                {
+-                    break;
+-                }
+-
+-                // Note: the packet data in the buffer is safe to read from
+-                // only for the duration of this load. If it needs to be stored,
+-                // callees should make their own copy.
+-                _ = TryLoadSftpMessage(data.Slice(4, packetLength));
+-
+-                _buffer.Discard(4 + packetLength);
+             }
+         }
+ 
+--- a/ShellStream.cs
++++ b/ShellStream.cs
+@@ -1,4 +1,4 @@
+-﻿#nullable enable
++#nullable enable
+ using System;
+ using System.Collections.Generic;
+ using System.Diagnostics;
+@@ -20,6 +20,8 @@
+     public sealed class ShellStream : Stream
+     {
+         private const int DefaultBufferSize = 1024;
++        // Hexgate: a fixed allocation matched to the advertised SSH receive window.
++        public const int ReceiveBufferLimit = 1024 * 1024;
+ 
+         private readonly ISession _session;
+         private readonly Encoding _encoding;
+@@ -158,13 +160,14 @@
+             _carriageReturnBytes = _encoding.GetBytes("\r");
+             _lineFeedBytes = _encoding.GetBytes("\n");
+ 
+-            _channel = _session.CreateChannelSession();
++            _channel = _session.CreateBoundedShellChannel(ReceiveBufferLimit);
+             _channel.DataReceived += Channel_DataReceived;
++            _channel.ExtendedDataReceived += Channel_ExtendedDataReceived;
+             _channel.Closed += Channel_Closed;
+             _session.Disconnected += Session_Disconnected;
+             _session.ErrorOccured += Session_ErrorOccurred;
+ 
+-            _readBuffer = new System.Net.ArrayBuffer(bufferSize);
++            _readBuffer = new System.Net.ArrayBuffer(ReceiveBufferLimit);
+             _writeBuffer = new System.Net.ArrayBuffer(bufferSize);
+ 
+             _noTerminal = noTerminal;
+@@ -401,7 +404,7 @@
+ 
+                         var returnText = GetString(readLength);
+ 
+-                        _readBuffer.Discard(readLength);
++                        DiscardReadBuffer(readLength);
+ 
+                         return returnText;
+                     }
+@@ -494,7 +497,7 @@
+                         {
+                             var returnText = bufferText.Substring(0, match.Index + match.Length);
+ #endif
+-                            _readBuffer.Discard(_encoding.GetByteCount(returnText));
++                            DiscardReadBuffer(_encoding.GetByteCount(returnText));
+ 
+                             expectAction.Action(returnText);
+ 
+@@ -670,7 +673,7 @@
+                             // If there is \n before the \r, then return up to the \n
+                             var returnText = GetString(indexOfLf);
+ 
+-                            _readBuffer.Discard(indexOfLf + _lineFeedBytes.Length);
++                            DiscardReadBuffer(indexOfLf + _lineFeedBytes.Length);
+ 
+                             return returnText;
+                         }
+@@ -679,7 +682,7 @@
+                             // If we have \r\n, then consume both
+                             var returnText = GetString(indexOfCr);
+ 
+-                            _readBuffer.Discard(indexOfCr + _carriageReturnBytes.Length + _lineFeedBytes.Length);
++                            DiscardReadBuffer(indexOfCr + _carriageReturnBytes.Length + _lineFeedBytes.Length);
+ 
+                             return returnText;
+                         }
+@@ -688,7 +691,7 @@
+                             // Return up to the \r
+                             var returnText = GetString(indexOfCr);
+ 
+-                            _readBuffer.Discard(indexOfCr + _carriageReturnBytes.Length);
++                            DiscardReadBuffer(indexOfCr + _carriageReturnBytes.Length);
+ 
+                             return returnText;
+                         }
+@@ -702,7 +705,7 @@
+                         {
+                             var returnText = GetString(indexOfLf);
+ 
+-                            _readBuffer.Discard(indexOfLf + _lineFeedBytes.Length);
++                            DiscardReadBuffer(indexOfLf + _lineFeedBytes.Length);
+ 
+                             return returnText;
+                         }
+@@ -714,7 +717,7 @@
+                             ? null
+                             : GetString(_readBuffer.ActiveLength);
+ 
+-                        _readBuffer.Discard(_readBuffer.ActiveLength);
++                        DiscardReadBuffer(_readBuffer.ActiveLength);
+ 
+                         return lastLine;
+                     }
+@@ -764,7 +767,7 @@
+             {
+                 var text = GetString(_readBuffer.ActiveLength);
+ 
+-                _readBuffer.Discard(_readBuffer.ActiveLength);
++                DiscardReadBuffer(_readBuffer.ActiveLength);
+ 
+                 return text;
+             }
+@@ -799,7 +802,7 @@
+ 
+                 _readBuffer.ActiveReadOnlySpan.Slice(0, bytesRead).CopyTo(buffer);
+ 
+-                _readBuffer.Discard(bytesRead);
++                DiscardReadBuffer(bytesRead);
+ 
+                 return bytesRead;
+             }
+@@ -982,6 +985,7 @@
+ 
+                 // But we do own _channel
+                 _channel.DataReceived -= Channel_DataReceived;
++                _channel.ExtendedDataReceived -= Channel_ExtendedDataReceived;
+                 _channel.Closed -= Channel_Closed;
+                 _channel.Dispose();
+ 
+@@ -1012,10 +1016,24 @@
+             }
+         }
+ 
++        private void DiscardReadBuffer(int count)
++        {
++            _readBuffer.Discard(count);
++            _channel.AcknowledgeReceivedBytes(count);
++        }
++
++        private void Channel_ExtendedDataReceived(object? sender, ChannelExtendedDataEventArgs e)
++        {
++            Channel_DataReceived(sender, e);
++        }
++
+         private void Channel_DataReceived(object? sender, ChannelDataEventArgs e)
+         {
+             lock (_sync)
+             {
++                if (_disposed) return;
++                if (e.Data.Count > ReceiveBufferLimit - _readBuffer.ActiveLength)
++                    throw new SshException("Shell receive buffer limit exceeded.");
+                 _readBuffer.EnsureAvailableSpace(e.Data.Count);
+ 
+                 e.Data.AsSpan().CopyTo(_readBuffer.AvailableSpan);

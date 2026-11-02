@@ -12,7 +12,7 @@ sessions. It is built with Kotlin, Jetpack Compose, SSHJ, and the Termux termina
 
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.1.20-7F52FF)
-![Version](https://img.shields.io/badge/version-0.1.13-blue)
+![Version](https://img.shields.io/badge/version-0.1.15-blue)
 
 ## Features
 
@@ -34,7 +34,7 @@ sessions. It is built with Kotlin, Jetpack Compose, SSHJ, and the Termux termina
 
 1. Make an SSH server reachable from your Android device. For WSL and optional Tailscale
    access, follow the [connection guide](docs/connection-guide.md).
-2. Install a locally built APK or an APK provided by the repository owner.
+2. Install the [packaged 0.1.15 APK](packages/README.md) or build the app locally.
 3. Open the left drawer and add a connection. Choose **Private key** and import a dedicated key,
    or choose **Password** and enter the SSH account password to store it encrypted.
 4. Compare the displayed host fingerprint with the fingerprint obtained directly on the

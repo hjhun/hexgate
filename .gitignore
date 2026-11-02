@@ -46,3 +46,6 @@ Thumbs.db
 /tizen/artifacts/
 *.tpk
 /tizen/**/core
+
+# User-requested versioned Android release packages
+!/packages/*.apk

@@ -60,6 +60,8 @@ public final class TerminalView extends View {
 
     public TerminalViewClient mClient;
 
+    private BaseInputConnection mInputConnection;
+
     private TextSelectionCursorController mTextSelectionCursorController;
 
     private Handler mTerminalCursorBlinkerHandler;
@@ -313,6 +315,7 @@ public final class TerminalView extends View {
 
     /** Retire only this window's renderer; the remote session keeps running. */
     public void detachSession() {
+        mInputConnection = null;
         mRemoteMouseDrag = false;
         mRemoteCopyArmed = false;
         mClient.onRemoteSelectionCopy(false);
@@ -357,7 +360,7 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
-        return new BaseInputConnection(this, true) {
+        return mInputConnection = new BaseInputConnection(this, true) {
 
             @Override
             public boolean finishComposingText() {
@@ -404,7 +407,7 @@ public final class TerminalView extends View {
                 // An IME text commit is one text insertion, not a burst of independent keys.
                 // Preserve bracketed-paste semantics through nested terminal applications.
                 if (textLengthInChars > 1 && mEmulator != null &&
-                    !mClient.readControlKey() && !mClient.readAltKey()) {
+                    !mClient.readControlKey() && !mClient.readAltKey() && !mClient.readShiftKey()) {
                     mEmulator.paste(text.toString());
                     return;
                 }
@@ -937,6 +940,13 @@ public final class TerminalView extends View {
         final boolean leftAltDown = (metaState & KeyEvent.META_ALT_LEFT_ON) != 0 || mClient.readAltKey();
         final boolean shiftDown = event.isShiftPressed() || mClient.readShiftKey();
         final boolean rightAltDownFromEvent = (metaState & KeyEvent.META_ALT_RIGHT_ON) != 0;
+
+        // Some IMEs send punctuation as a key event before finishing the last syllable.
+        // Flush that pending text first, retaining this key's captured modifiers.
+        if (!KeyEvent.isModifierKey(keyCode) && mInputConnection != null &&
+            mInputConnection.getEditable().length() > 0) {
+            mInputConnection.finishComposingText();
+        }
 
         int keyMod = 0;
         if (controlDown) keyMod |= KeyHandler.KEYMOD_CTRL;

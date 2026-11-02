@@ -2,6 +2,22 @@
 
 All versions below are development builds. Dates use the development record's local date.
 
+## 0.1.15 — packaged 2026-11-02
+
+- Finalize a pending Korean syllable before punctuation or Enter key events,
+  preserving `할까요?` instead of `할까?요` and avoiding repeated finalization.
+- Include the 0.1.14 Shift and simultaneous modifier improvements below.
+- Track the debug-signed APK and SHA-256 checksum under `packages/` and publish
+  the same files as GitHub Release assets.
+
+## 0.1.14 — 2026-10-29
+
+- Add Shift immediately before the arrow keys in the input accessory bar.
+- Support simultaneous Ctrl/Alt/Shift holds, repeated input while held,
+  one-input tap latches, and cancellation without stuck modifiers.
+- Apply Shift to native keys and multi-character IME commits while preserving
+  existing clipboard shortcuts and accessory-bar scrolling.
+
 ## 0.1.13
 
 - Add explicit SSH password authentication with a masked password field in connection settings.

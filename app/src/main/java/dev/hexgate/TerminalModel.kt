@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import com.termux.terminal.KeyHandler
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import java.lang.ref.WeakReference
@@ -34,8 +35,16 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     var connected by mutableStateOf(false); private set
     var connecting by mutableStateOf(false); private set
     var challenge by mutableStateOf<HostChallenge?>(null); private set
-    var ctrl by mutableStateOf(false)
-    var alt by mutableStateOf(false)
+    val modifiers = AccessoryModifiers()
+    var ctrl: Boolean
+        get() = modifiers.active(KeyHandler.KEYMOD_CTRL)
+        set(value) = modifiers.set(KeyHandler.KEYMOD_CTRL, value)
+    var alt: Boolean
+        get() = modifiers.active(KeyHandler.KEYMOD_ALT)
+        set(value) = modifiers.set(KeyHandler.KEYMOD_ALT, value)
+    var shift: Boolean
+        get() = modifiers.active(KeyHandler.KEYMOD_SHIFT)
+        set(value) = modifiers.set(KeyHandler.KEYMOD_SHIFT, value)
     var selection by mutableStateOf(false)
     var autoConnect by mutableStateOf(store.autoConnect()); private set
     fun updateAutoConnect(enabled: Boolean) { autoConnect=enabled;store.saveAutoConnect(enabled) }
@@ -276,11 +285,10 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
     }
     fun reconnect(passphrase: String = "") { activeProfile?.let { connect(it, passphrase) } }
     fun sendKey(value: String) { terminal.write(value) }
-    fun sendAccessory(keyCode: Int) {
-        val mods = (if (ctrl) com.termux.terminal.KeyHandler.KEYMOD_CTRL else 0) or (if (alt) com.termux.terminal.KeyHandler.KEYMOD_ALT else 0)
+    fun sendAccessory(keyCode: Int, mods: Int = modifiers.mask) {
         val code = com.termux.terminal.KeyHandler.getCode(keyCode,mods,terminal.emulator.isCursorKeysApplicationMode,terminal.emulator.isKeypadApplicationMode)
         if (code != null) terminal.write(code)
-        ctrl = false; alt = false
+        modifiers.consume()
     }
     fun copy(selected: String? = view.get()?.selectedText) {
         val text = selected?.takeIf { it.isNotEmpty() } ?: return
@@ -299,21 +307,25 @@ class TerminalModel(app: Application) : AndroidViewModel(app) {
             else selectionClipboard.clear()
         }
         override fun onKeyDown(keyCode: Int, e: android.view.KeyEvent?, session: TerminalSession?): Boolean {
-            if ((e?.isCtrlPressed == true || ctrl) && e?.isShiftPressed == true && !e.isAltPressed) {
+            if ((e?.isCtrlPressed == true || ctrl) && (e?.isShiftPressed == true || shift) && e?.isAltPressed != true && !alt) {
                 val selected = v.selectedText?.takeIf { it.isNotEmpty() }
                 if (keyCode == android.view.KeyEvent.KEYCODE_C) {
-                    copy(selected); ctrl = false; alt = false; return true
+                    copy(selected); modifiers.consume(); return true
                 }
                 if (keyCode == android.view.KeyEvent.KEYCODE_V) {
-                    v.stopTextSelectionMode(); paste(); ctrl = false; alt = false; return true
+                    v.stopTextSelectionMode(); paste(); modifiers.consume(); return true
                 }
             }
-            if (keyCode !in setOf(android.view.KeyEvent.KEYCODE_CTRL_LEFT,android.view.KeyEvent.KEYCODE_CTRL_RIGHT,android.view.KeyEvent.KEYCODE_ALT_LEFT,android.view.KeyEvent.KEYCODE_ALT_RIGHT)) main.post { ctrl = false; alt = false }
+            if (!android.view.KeyEvent.isModifierKey(keyCode)) {
+                modifiers.markUsed()
+                main.post { modifiers.consume() }
+            }
             return false
         }
         override fun readControlKey(): Boolean = ctrl
         override fun readAltKey(): Boolean = alt
-        override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean { ctrl = false; alt = false; return false }
+        override fun readShiftKey(): Boolean = shift
+        override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession?): Boolean { modifiers.consume(); return false }
         override fun onScale(scale: Float): Float { updateFontSize(fontSize * scale); return 1f }
         override fun onSingleTapUp(e: android.view.MotionEvent?) {
             if (!selection && e?.isFromSource(android.view.InputDevice.SOURCE_MOUSE) != true) showSoftKeyboard(v)

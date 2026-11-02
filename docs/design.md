@@ -61,3 +61,22 @@ never preloads decrypted passwords. Empty editing input retains a stored passwor
 input updates it. Key mode removes the stored password; profile deletion removes both kinds of
 credentials. Password profiles skip key loading and use SSHJ password authentication after
 normal host trust. Existing session/background ownership and SFTP/PTY paths are shared.
+
+## Shift and simultaneous accessory input — 2026-10-29
+
+The Android accessory bar places Shift immediately before the arrow keys. Ctrl, Alt and
+Shift share a tap-to-latch / hold-to-modify state: a tap applies to the next input, while a
+held modifier applies to every input until release. Used or cancelled holds never latch.
+Ordinary accessory keys retain horizontal scrolling and capture the modifier mask at touch
+down, so releasing a modifier before the key does not lose the chord. Native key events and
+IME commits read the same state; multi-character IME insertion bypasses the paste fast path
+when Shift is active. Existing Ctrl+Shift+C/V clipboard shortcuts remain available.
+
+## Korean composition before key events — 2026-10-29
+
+The terminal retains the active native input connection and finalizes pending composing
+text before processing an ordinary key event. This preserves the order of a final Korean
+syllable followed by punctuation or Enter. Modifier-only events do not end composition;
+the incoming key's modifiers are captured before flushing. The input-connection reference
+is dropped when the terminal view detaches. Later finishComposingText calls do not resend
+already finalized text.

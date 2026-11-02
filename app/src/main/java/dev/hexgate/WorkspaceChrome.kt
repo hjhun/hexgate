@@ -1,5 +1,8 @@
 package dev.hexgate
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +16,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import com.termux.terminal.KeyHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -104,24 +110,58 @@ import androidx.compose.ui.unit.sp
     }
 }
 
-@Composable private fun Accessory(label: String, selected: Boolean = false, action: () -> Unit) {
-    Surface(onClick = action, modifier = Modifier.heightIn(min = 44.dp).widthIn(min = 44.dp),
+@Composable private fun Accessory(label: String, selected: Boolean = false, modifier: Modifier = Modifier, action: () -> Unit) {
+    Surface(onClick = action, modifier = modifier.heightIn(min = 44.dp).widthIn(min = 44.dp),
         shape = RoundedCornerShape(7.dp), color = if(selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         contentColor = if(selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface) {
         Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) { Text(label, style = MaterialTheme.typography.labelLarge) }
     }
 }
 
+@Composable private fun ModifierAccessory(label: String, key: Int, modifiers: AccessoryModifiers) {
+    Accessory(label, modifiers.active(key), Modifier.pointerInput(modifiers, key) {
+        awaitEachGesture {
+            val down = awaitFirstDown(pass = PointerEventPass.Initial)
+            down.consume()
+            modifiers.press(key)
+            var cancelled = true
+            try {
+                val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                cancelled = up == null
+                up?.consume()
+            } finally {
+                modifiers.release(key, cancelled)
+            }
+        }
+    }) { modifiers.toggle(key) }
+}
+
+@Composable private fun KeyAccessory(label: String, code: Int, vm: TerminalModel) {
+    Accessory(label, modifier = Modifier.pointerInput(vm, code) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val mods = vm.modifiers.mask
+            vm.modifiers.markUsed()
+            val up = waitForUpOrCancellation(pass = PointerEventPass.Initial)
+            if (up != null) {
+                up.consume()
+                vm.sendAccessory(code, mods)
+            }
+        }
+    }) { vm.sendAccessory(code) }
+}
+
 @Composable fun KeyboardBar(vm: TerminalModel) {
     Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Accessory("Keyboard") { vm.requestKeyboard() }
-        Accessory("Ctrl", vm.ctrl) { vm.ctrl = !vm.ctrl }
-        Accessory("Alt", vm.alt) { vm.alt = !vm.alt }
+        ModifierAccessory("Ctrl", KeyHandler.KEYMOD_CTRL, vm.modifiers)
+        ModifierAccessory("Alt", KeyHandler.KEYMOD_ALT, vm.modifiers)
         listOf("Esc" to android.view.KeyEvent.KEYCODE_ESCAPE, "Tab" to android.view.KeyEvent.KEYCODE_TAB,
-            "Enter" to android.view.KeyEvent.KEYCODE_ENTER,
-            "↑" to android.view.KeyEvent.KEYCODE_DPAD_UP, "↓" to android.view.KeyEvent.KEYCODE_DPAD_DOWN,
-            "←" to android.view.KeyEvent.KEYCODE_DPAD_LEFT, "→" to android.view.KeyEvent.KEYCODE_DPAD_RIGHT).forEach { (label, code) -> Accessory(label) { vm.sendAccessory(code) } }
+            "Enter" to android.view.KeyEvent.KEYCODE_ENTER).forEach { (label, code) -> KeyAccessory(label, code, vm) }
+        ModifierAccessory("Shift", KeyHandler.KEYMOD_SHIFT, vm.modifiers)
+        listOf("↑" to android.view.KeyEvent.KEYCODE_DPAD_UP, "↓" to android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+            "←" to android.view.KeyEvent.KEYCODE_DPAD_LEFT, "→" to android.view.KeyEvent.KEYCODE_DPAD_RIGHT).forEach { (label, code) -> KeyAccessory(label, code, vm) }
         Spacer(Modifier.width(4.dp))
         Accessory("Select", vm.selection) { vm.selection = !vm.selection }
         Accessory("Copy") { vm.copy() }; Accessory("Paste") { vm.paste() }
